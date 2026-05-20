@@ -1,0 +1,9 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(Get-ChildItem -Recurse -File \"c:\\\\Users\\\\jedru\\\\Documents\\\\ClaudeCodeProjects\\\\BeamNGAutonommicCar\\\\\" | Select-Object FullName, Length)",
+      "Bash(ls \"G:/Gry/BeamNG.tech.v0.38.5.0/\" 2>/dev/null | head -30)",
+      "Read(//g/Gry/**)"
+    ]
+  }
+}
