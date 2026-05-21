@@ -19,12 +19,17 @@ def build_sixcam_composite(images_dict, target_w=1024, target_h=256):
     Returns:
         composite: ndarray (3, target_h, target_w) float32, normalized [0, 1], CHW, RGB
     """
-    camera_order = ['FL', 'F', 'FR', 'BR', 'B', 'BL']
-    per_cam_w = target_w // 6  # ~170px
-    extra = target_w - per_cam_w * 6  # distribute remainder
+    # DDV2 was trained on 3 FORWARD-facing NAVSIM cameras stitched into a 1024x256 panorama.
+    # Using rear cameras confuses the model and causes backward driving.
+    # Layout: [FL (341px) | F (342px) | FR (341px)] = 1024px total
+    # This matches the original NAVSIM 3-camera panorama format.
+    front_order = ['FL', 'F', 'FR']
+    n_cams = len(front_order)
+    per_cam_w = target_w // n_cams  # ~341px
+    extra = target_w - per_cam_w * n_cams  # distribute remainder (1-2px)
 
     strips = []
-    for i, cam_name in enumerate(camera_order):
+    for i, cam_name in enumerate(front_order):
         img = images_dict.get(cam_name)
         if img is None:
             img = np.zeros((200, 300, 3), dtype=np.uint8)

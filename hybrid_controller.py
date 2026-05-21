@@ -135,36 +135,17 @@ class HybridController:
             print("[HYBRID] LKA zawiodlo - spadam do CV")
             self.set_level(self.LEVEL_CUSTOM_CV)
 
+        speed_ms = speed_kmh / 3.6
+
         if self.current_level == self.LEVEL_TRAFFIC_AI:
-            try:
-                self.vehicle.sensors.poll()
-                vel = self.vehicle.state.get('vel', (0, 0, 0))
-                speed_ms = math.sqrt(vel[0]**2 + vel[1]**2 + vel[2]**2)
-                current_speed = speed_ms * 3.6
-            except Exception:
-                current_speed = speed_kmh
-            return 0.0, 0.0, 0.0, current_speed, 0.0, "TRAFFIC_AI", lane_data, confidence, 0.0
+            return 0.0, 0.0, 0.0, speed_kmh, 0.0, "TRAFFIC_AI", lane_data, confidence, 0.0
 
         if self.current_level == self.LEVEL_LKA_ACC:
-            try:
-                self.vehicle.sensors.poll()
-                vel = self.vehicle.state.get('vel', (0, 0, 0))
-                speed_ms = math.sqrt(vel[0]**2 + vel[1]**2 + vel[2]**2)
-                current_speed = speed_ms * 3.6
-            except Exception:
-                current_speed = speed_kmh
-
             steering, curvature = get_fused_lane_steering(images)
-            return steering, 0.0, curvature, current_speed, 0.0, "LKA+ACC", lane_data, confidence, 0.0
+            return steering, 0.0, curvature, speed_kmh, 0.0, "LKA+ACC", lane_data, confidence, 0.0
 
         if self.current_level in (self.LEVEL_DDV2, self.LEVEL_NAV_DDV2) \
                 and self.ddv2 and self.ddv2.is_available():
-            try:
-                self.vehicle.sensors.poll()
-                vel = self.vehicle.state.get('vel', (0, 0, 0))
-                speed_ms = math.sqrt(vel[0]**2 + vel[1]**2 + vel[2]**2)
-            except Exception:
-                speed_ms = speed_kmh / 3.6
 
             driving_command = 'follow_lane'
             if self.current_level == self.LEVEL_NAV_DDV2 and self.navigation:
@@ -179,7 +160,7 @@ class HybridController:
                     images, speed_ms, driving_command=driving_command
                 )
             else:
-                steering, throttle, brake = self.ddv2.interpolate(self.ddv2_frame)
+                steering, throttle, brake = self.ddv2.interpolate(self.ddv2_frame, speed_ms)
 
             self.ddv2_frame += 1
             self.vehicle.control(throttle=throttle, steering=steering, brake=brake)

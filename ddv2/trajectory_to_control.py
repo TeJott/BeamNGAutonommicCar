@@ -15,9 +15,12 @@ class TrajectoryController:
         self.wheelbase = wheelbase
         self.speed_kp = 0.6
         self.speed_ki = 0.1
-        self.steering_kp = 1.0
+        self.steering_kp = 0.5
         self._speed_integral = 0.0
         self._max_integral = 10.0
+        self._prev_steering = 0.0
+        self._steering_ema = 0.0
+        self._ema_alpha = 0.4
 
     def select_trajectory(self, trajectories, scores, vehicle_state=None):
         """
@@ -37,7 +40,12 @@ class TrajectoryController:
 
     def trajectory_to_control(self, trajectory, current_speed_ms):
         """
-        Convert first trajectory waypoint to steering/throttle/brake.
+        Convert DDV2 trajectory to steering/throttle/brake.
+
+        DDV2 outputs 8 waypoints over 4s (0.5s interval) in ego frame.
+        Steering uses the first waypoint (0.5s) for immediate response.
+        Speed uses waypoint at ~2s (index 3) for stable control — using
+        the closest waypoint causes constant braking at highway speeds.
 
         Args:
             trajectory: (T, 3) array of (x, y, yaw) waypoints
@@ -48,19 +56,37 @@ class TrajectoryController:
             throttle: float [0, 1]
             brake: float [0, 1]
         """
-        lookahead_x, lookahead_y, target_yaw = trajectory[0]
+        T = len(trajectory)
 
-        lookahead_dist = math.sqrt(lookahead_x**2 + lookahead_y**2)
-        lookahead_dist = max(0.5, lookahead_dist)
+        # Steering: use closest waypoint (0.5s) for immediate response
+        steer_x, steer_y, _ = trajectory[0]
+        steer_dist = math.sqrt(steer_x**2 + steer_y**2)
+        steer_dist = max(0.5, steer_dist)
 
-        alpha = math.atan2(lookahead_y, lookahead_x)
+        alpha = math.atan2(steer_y, steer_x)
         steering_angle = math.atan2(
-            2.0 * self.wheelbase * math.sin(alpha), lookahead_dist
+            2.0 * self.wheelbase * math.sin(alpha), steer_dist
         )
-        steering = max(-1.0, min(1.0, steering_angle * self.steering_kp / (math.pi / 4)))
+        raw_steering = max(-1.0, min(1.0, steering_angle * self.steering_kp / (math.pi / 4)))
 
-        desired_speed = lookahead_dist / self.dt
-        desired_speed = max(3.0, min(30.0, desired_speed))
+        # EMA smoothing to prevent wild oscillations
+        self._steering_ema = self._ema_alpha * raw_steering + (1 - self._ema_alpha) * self._steering_ema
+        steering = max(-1.0, min(1.0, self._steering_ema))
+
+        # Rate limit: max 0.3 change per call
+        max_delta = 0.3
+        steering = self._prev_steering + max(-max_delta, min(max_delta, steering - self._prev_steering))
+        self._prev_steering = steering
+
+        # Speed: use waypoint at ~2s (index 3) with matching dt
+        speed_idx = min(3, T - 1)
+        speed_x, speed_y, _ = trajectory[speed_idx]
+        speed_dist = math.sqrt(speed_x**2 + speed_y**2)
+        speed_dt = 0.5 * (speed_idx + 1)  # time to reach this waypoint
+        speed_dist = max(2.0, speed_dist)  # minimum 2m ahead
+
+        desired_speed = speed_dist / speed_dt
+        desired_speed = max(2.0, min(30.0, desired_speed))
 
         speed_error = desired_speed - current_speed_ms
         self._speed_integral += speed_error * self.dt
@@ -74,7 +100,7 @@ class TrajectoryController:
 
         return steering, throttle, brake
 
-    def interpolate_control(self, trajectory, step, total_skip):
+    def interpolate_control(self, trajectory, step, total_skip, current_speed_ms):
         """
         Interpolate controls for intermediate frames when DDV2 runs every N frames.
 
@@ -82,6 +108,7 @@ class TrajectoryController:
             trajectory: selected trajectory (T, 3)
             step: current sub-frame index (0 to total_skip-1)
             total_skip: total frames between DDV2 inferences
+            current_speed_ms: REAL vehicle speed in m/s (not derived from waypoints)
 
         Returns:
             interpolated steering, throttle, brake
@@ -98,9 +125,10 @@ class TrajectoryController:
         interp_yaw = wp1[2] + fraction * (wp2[2] - wp1[2])
 
         interp_traj = [(interp_x, interp_y, interp_yaw)] + list(trajectory[idx + 1:])
-        current_speed = math.sqrt(interp_x**2 + interp_y**2) / self.dt
 
-        return self.trajectory_to_control(interp_traj, current_speed)
+        return self.trajectory_to_control(interp_traj, current_speed_ms)
 
     def reset(self):
         self._speed_integral = 0.0
+        self._prev_steering = 0.0
+        self._steering_ema = 0.0

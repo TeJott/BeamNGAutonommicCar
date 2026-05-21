@@ -69,12 +69,12 @@ class DDV2Inference:
 
         return self.traj_ctrl.trajectory_to_control(self.current_trajectory, speed_ms)
 
-    def interpolate(self, sub_frame):
+    def interpolate(self, sub_frame, speed_ms):
         """Interpolate controls between DDV2 inference steps."""
         if self.current_trajectory is None:
             return 0.0, 0.0, 0.0
         return self.traj_ctrl.interpolate_control(
-            self.current_trajectory, sub_frame % self.frame_skip, self.frame_skip
+            self.current_trajectory, sub_frame % self.frame_skip, self.frame_skip, speed_ms
         )
 
     def reset(self):

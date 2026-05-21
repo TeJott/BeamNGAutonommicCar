@@ -89,6 +89,8 @@ controller.init_navigation()
 
 frame = 0
 speed_kmh = 0
+radar_vehicles = []
+radar_boxes = []
 
 try:
     while True:
@@ -100,17 +102,13 @@ try:
                 stream_data = cam.stream()
                 if stream_data is not None and 'colour' in stream_data:
                     img_pil = stream_data['colour']
-                    img_bgr = cv2.cvtColor(np.array(img_pil), cv2.COLOR_RGB2BGR)
-                    images[name] = cv2.resize(img_bgr, CAM_RESOLUTION)
+                    images[name] = cv2.cvtColor(np.array(img_pil), cv2.COLOR_RGB2BGR)
                 else:
                     images[name] = np.zeros((CAM_RESOLUTION[1], CAM_RESOLUTION[0], 3), dtype=np.uint8)
-                    cv2.putText(images[name], "NO DATA", (110, 100),
-                                cv2.FONT_HERSHEY_SIMPLEX, 0.5, (0, 0, 255), 1)
             except Exception:
                 images[name] = np.zeros((CAM_RESOLUTION[1], CAM_RESOLUTION[0], 3), dtype=np.uint8)
-                cv2.putText(images[name], "ERR: STREAM", (100, 100),
-                            cv2.FONT_HERSHEY_SIMPLEX, 0.5, (0, 0, 255), 1)
 
+        # Poll sensors once per frame so vehicle.state is fresh for all modes
         try:
             vehicle.sensors.poll()
             vel = vehicle.state.get('vel', (0, 0, 0))
@@ -125,15 +123,13 @@ try:
         if mode_label in ("TRAFFIC_AI", "LKA+ACC"):
             disp_speed = speed_kmh
 
-        # Radar: detect nearby vehicles
-        radar_vehicles = radar.get_nearby_vehicles()
-        radar_boxes = radar.project_to_front_camera(radar_vehicles)
+        if frame % 3 == 0:
+            radar_vehicles = radar.get_nearby_vehicles()
+            radar_boxes = radar.project_to_front_camera(radar_vehicles)
 
-        # Navigation info for display
         nav_cmd = getattr(controller, 'nav_command', '')
         nav_dist = getattr(controller, 'nav_distance', 0.0)
 
-        # Render full display
         camera_view = render_display(
             images_dict=images,
             lane_data=lane_data,

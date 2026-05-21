@@ -10,8 +10,8 @@ SCENARIO_NAME = 'multicamera_autonomous_drive'
 SPAWN_POS = (-1045.877197, -518.1680298, 101.8693466)
 SPAWN_YAW_DEG = -135.678
 
-CAM_RESOLUTION = (300, 200)
-CAM_UPDATE_TIME = 0.01
+CAM_RESOLUTION = (220, 150)
+CAM_UPDATE_TIME = 0.01667
 CAM_HEIGHT = 1.3
 
 CAM_SPECS = {
@@ -57,8 +57,8 @@ SPEED_CONTROL = {
 
 DISPLAY = {
     'window_name': '360 Camera View',
-    'window_width': 1150,
-    'window_height': 780,
+    'window_width': 980,
+    'window_height': 580,
     'frame_interval': 50,
 }
 
@@ -70,6 +70,6 @@ NAVIGATION = {
 }
 
 DDV2 = {
-    'frame_skip': 3,
+    'frame_skip': 2,
     'checkpoint_path': 'ddv2/checkpoints/diffusiondrivev2_sel.ckpt',
 }
