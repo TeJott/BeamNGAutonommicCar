@@ -1,4 +1,4 @@
-BEAMNG_HOME = 'G:\\Gry\\BeamNG.tech.v0.38.5.0'
+BEAMNG_HOME = 'F:\\BeamNG.tech\\BeamNG.tech.v0.38.5.0\\BeamNG.tech.v0.38.5.0'
 BEAMNG_HOST = 'localhost'
 BEAMNG_PORT = 64256
 
