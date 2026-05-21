@@ -37,11 +37,14 @@ class HybridController:
             if waypoints:
                 self.navigation.set_manual_waypoints(waypoints)
                 print(f"[HYBRID] Nawigacja: {len(waypoints)} waypointow manualnych")
+                return True
             else:
-                self.navigation.load_graph()
-                print(f"[HYBRID] Nawigacja: tryb auto-routingu (dystans: {auto_distance}m)")
-
-            return True
+                if self.navigation.load_graph():
+                    print(f"[HYBRID] Nawigacja: tryb auto-routingu (dystans: {auto_distance}m)")
+                    return True
+                else:
+                    print("[HYBRID] Nawigacja: nie udalo sie zaladowac grafu drog")
+                    return False
         except ImportError as e:
             print(f"[HYBRID] Nawigacja niedostepna: {e}")
             self.navigation = None
@@ -170,18 +173,10 @@ class HybridController:
 
         if self.current_level == self.LEVEL_CUSTOM_CV:
             steering, curvature = get_fused_lane_steering(images)
-            throttle, brake, target_speed = compute_speed_control(curvature, speed_kmh)
-
-            if self.transition_progress < self.transition_steps:
-                alpha = self.transition_progress / self.transition_steps
-                throttle = self.prev_throttle * (1 - alpha) + throttle * alpha
-                brake = self.prev_brake * (1 - alpha) + brake * alpha
-                steering = self.prev_steering * (1 - alpha) + steering * alpha
-                self.transition_progress += 1
-
-            self.prev_throttle = throttle
-            self.prev_steering = steering
-            self.prev_brake = brake
+            # Match original proven behavior: constant throttle, no PI speed controller
+            throttle = 0.15
+            brake = 0.0
+            target_speed = 90.0
 
             self.vehicle.control(throttle=throttle, steering=steering, brake=brake)
             return steering, throttle, curvature, speed_kmh, target_speed, "CUSTOM_CV", lane_data, confidence, brake

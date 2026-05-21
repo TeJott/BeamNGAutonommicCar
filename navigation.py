@@ -46,9 +46,25 @@ class NavigationSystem:
 
         try:
             from beamngpy.tools import NavigraphData
-            nav_data = NavigraphData.get_data(self.bng)
-            self.graph = nav_data.get('graph', {})
-            self.coords = nav_data.get('coords3d', {})
+            nav = NavigraphData(self.bng)
+
+            self.graph = {}
+            for node_id, successors in nav.graph.items():
+                node_id = int(node_id) if isinstance(node_id, str) else node_id
+                edges = []
+                for succ_id in successors:
+                    succ_id = int(succ_id) if isinstance(succ_id, str) else succ_id
+                    c1 = nav.coords3d[node_id]
+                    c2 = nav.coords3d[succ_id]
+                    dist = ((c2[0] - c1[0])**2 + (c2[1] - c1[1])**2 + (c2[2] - c1[2])**2) ** 0.5
+                    edges.append((succ_id, dist))
+                self.graph[node_id] = edges
+
+            self.coords = {}
+            for node_id, coord in nav.coords3d.items():
+                node_id = int(node_id) if isinstance(node_id, str) else node_id
+                self.coords[node_id] = (float(coord[0]), float(coord[1]), float(coord[2]))
+
             self._last_graph_fetch = time.time()
             return len(self.graph) > 0
         except Exception as e:

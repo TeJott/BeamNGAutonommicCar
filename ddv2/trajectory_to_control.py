@@ -86,7 +86,10 @@ class TrajectoryController:
         speed_dist = max(2.0, speed_dist)  # minimum 2m ahead
 
         desired_speed = speed_dist / speed_dt
-        desired_speed = max(2.0, min(30.0, desired_speed))
+        # DDV2 was trained on NAVSIM city data (30-50 km/h). At highway speeds,
+        # the model still predicts short waypoints, causing unwanted braking.
+        # Floor at 8 m/s (29 km/h) — below this, hold current speed instead.
+        desired_speed = max(8.0, min(30.0, desired_speed))
 
         speed_error = desired_speed - current_speed_ms
         self._speed_integral += speed_error * self.dt
@@ -94,9 +97,10 @@ class TrajectoryController:
 
         throttle = max(0.0, min(1.0, self.speed_kp * speed_error + self.speed_ki * self._speed_integral))
 
+        # Brake only when significantly overspeeding (>8 m/s = 29 km/h over target)
         brake = 0.0
-        if speed_error < -2.0:
-            brake = min(0.5, abs(speed_error) * 0.05)
+        if speed_error < -8.0:
+            brake = min(0.2, abs(speed_error) * 0.01)
 
         return steering, throttle, brake
 
