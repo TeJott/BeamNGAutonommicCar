@@ -3,7 +3,12 @@
     "allow": [
       "Bash(Get-ChildItem -Recurse -File \"c:\\\\Users\\\\jedru\\\\Documents\\\\ClaudeCodeProjects\\\\BeamNGAutonommicCar\\\\\" | Select-Object FullName, Length)",
       "Bash(ls \"G:/Gry/BeamNG.tech.v0.38.5.0/\" 2>/dev/null | head -30)",
-      "Read(//g/Gry/**)"
+      "Read(//g/Gry/**)",
+      "Bash(python -c \"import beamngpy; print\\(beamngpy.__file__\\)\")",
+      "Bash(python3 -c \"import beamngpy; print\\(beamngpy.__file__\\)\")",
+      "Bash(git clone *)",
+      "Bash(Select-Object -First 20)",
+      "Bash(huggingface-cli download *)"
     ]
   }
 }

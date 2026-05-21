@@ -61,3 +61,15 @@ DISPLAY = {
     'window_height': 780,
     'frame_interval': 50,
 }
+
+NAVIGATION = {
+    'enabled': True,
+    'auto_distance': 500.0,
+    'maneuver_lookahead': 3,
+    'junction_angle_threshold': 30.0,
+}
+
+DDV2 = {
+    'frame_skip': 3,
+    'checkpoint_path': 'ddv2/checkpoints/diffusiondrivev2_sel.ckpt',
+}

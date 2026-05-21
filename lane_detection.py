@@ -42,7 +42,7 @@ def _detect_lane_points(img_bgr):
     return left_x, right_x
 
 
-def estimate_curvature(left_x, right_x, roi_height, img_width):
+def estimate_curvature(left_x, right_x, img_width):
     if not left_x or not right_x:
         return 0.0
     if len(left_x) < 2 or len(right_x) < 2:
@@ -78,7 +78,7 @@ def get_lane_steering(img_bgr):
         lane_center = img_center
         confidence = 0.0
 
-    curvature = estimate_curvature(left_x, right_x, h - roi_top, w)
+    curvature = estimate_curvature(left_x, right_x, w)
 
     error = lane_center - img_center
     Kp = CFG['steering_kp'] * max(CFG['confidence_min_kp'], confidence)
@@ -96,17 +96,24 @@ def get_fused_lane_steering(images_dict):
     if front_img is None:
         return 0.0, 0.0
 
-    steering, confidence, curvature = get_lane_steering(front_img)
     h, w, _ = front_img.shape
-
     left_x, right_x = _detect_lane_points(front_img)
-    raw_center = w / 2.0
+    roi_top = int(h * CFG['roi_top_ratio'])
+
     if left_x and right_x:
         raw_center = (np.mean(left_x) + np.mean(right_x)) / 2.0
+        confidence = 1.0
     elif left_x:
         raw_center = np.mean(left_x) + CFG['assumed_lane_width_px']
+        confidence = 0.55
     elif right_x:
         raw_center = np.mean(right_x) - CFG['assumed_lane_width_px']
+        confidence = 0.55
+    else:
+        raw_center = w / 2.0
+        confidence = 0.0
+
+    curvature = estimate_curvature(left_x, right_x, w)
 
     # EMA smoothing
     if not hasattr(get_fused_lane_steering, '_prev_center'):
@@ -118,6 +125,11 @@ def get_fused_lane_steering(images_dict):
     error = smoothed - w / 2.0
     Kp = CFG['steering_kp'] * max(CFG['confidence_min_kp'], confidence)
     steering = max(-1.0, min(1.0, error * Kp))
+
+    # Visualization overlay on front image
+    img_center = w / 2.0
+    cv2.line(front_img, (int(img_center), h - 10), (int(img_center), roi_top), (0, 0, 255), 2)
+    cv2.line(front_img, (int(raw_center), h - 10), (int(raw_center), roi_top), (255, 0, 0), 2)
 
     return steering, curvature
 
@@ -162,5 +174,5 @@ def get_lane_visualization_data(img_bgr):
         'right_mean': right_mean,
         'lane_center': lane_center,
         'confidence': confidence,
-        'curvature': estimate_curvature(left_x, right_x, h - roi_top, w),
+        'curvature': estimate_curvature(left_x, right_x, w),
     }

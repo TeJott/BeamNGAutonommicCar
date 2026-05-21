@@ -56,6 +56,18 @@ COLOR_YELLOW = (230, 200, 0)
 COLOR_THROTTLE = (80, 220, 80)
 COLOR_BRAKE = (40, 100, 255)
 COLOR_STEER_BAR = (220, 180, 40)
+NAV_COLORS = {
+    'turn_left': (230, 200, 0),
+    'turn_right': (80, 200, 255),
+    'follow_lane': (80, 220, 80),
+    'keep_straight': (80, 220, 80),
+}
+NAV_ARROWS = {
+    'turn_left': ' <-- TURN LEFT ',
+    'turn_right': ' TURN RIGHT --> ',
+    'follow_lane': ' ^^ STRAIGHT ^^ ',
+    'keep_straight': ' ^^ STRAIGHT ^^ ',
+}
 
 
 def _make_blank(h, w, color=COLOR_CANVAS_BG):
@@ -67,7 +79,8 @@ def _make_blank(h, w, color=COLOR_CANVAS_BG):
 # ==============================================================================
 # MODE BAR
 # ==============================================================================
-def draw_mode_bar(img, mode_label, confidence=0.0, level=0):
+def draw_mode_bar(img, mode_label, confidence=0.0, level=0,
+                  nav_command='', nav_distance=0.0):
     color = MODE_COLORS.get(mode_label, MODE_COLORS['UNKNOWN'])
     overlay = img[0:MODE_BAR_H, 0:CANVAS_W]
     overlay[:] = color
@@ -77,8 +90,11 @@ def draw_mode_bar(img, mode_label, confidence=0.0, level=0):
     cv2.putText(img, f"CONF: {confidence:.1%}", (300, 22), FONT, FONT_SM, COLOR_WHITE, 1)
     cv2.putText(img, f"LEVEL: {level}", (500, 22), FONT, FONT_SM, COLOR_WHITE, 1)
 
-    keys = " [1]TrafficAI  [2]CustomCV  [3]LKA+ACC  [4]DDV2  [0]STOP  [q]QUIT"
-    cv2.putText(img, keys, (620, 22), FONT, FONT_SM, (200, 200, 200), 1)
+    keys = " [1]TrafficAI  [2]CustomCV  [3]LKA+ACC  [4]DDV2  [5]DDV2+NAV  [0]STOP  [q]QUIT"
+    cv2.putText(img, keys, (580, 22), FONT, FONT_SM, (200, 200, 200), 1)
+
+    if nav_command:
+        _draw_nav_indicator(img, nav_command, nav_distance)
 
 
 # ==============================================================================
@@ -108,7 +124,7 @@ def draw_front_camera(img, front_bgr, lane_data, radar_boxes):
     img_center_px = lane_data['img_width'] / 2.0
 
     # Translucent lane fill between left and right lanes
-    if lane_data.get('left_mean') and lane_data.get('right_mean'):
+    if lane_data.get('left_mean') is not None and lane_data.get('right_mean') is not None:
         left_screen = int(lane_data['left_mean'] * roi_scale_x)
         right_screen = int(lane_data['right_mean'] * roi_scale_x)
         pts = np.array([
@@ -180,7 +196,7 @@ def draw_birds_eye(img, lane_data, radar_vehicles, speed_kmh):
         cv2.line(sub, (cx_bird, dy), (cx_bird, min(dy + 10, bh)), COLOR_WHITE, 1)
 
     # Curved lane lines from curvature data
-    if lane_data and lane_data.get('left_mean') and lane_data.get('right_mean'):
+    if lane_data and lane_data.get('left_mean') is not None and lane_data.get('right_mean') is not None:
         curv = lane_data['curvature']
         for dy in range(0, bh, 3):
             offset = curv * (dy / bh) * (dy / bh) * 120
@@ -417,12 +433,27 @@ def draw_trajectory_bar(img, steering, curvature):
 
 
 # ==============================================================================
+# NAVIGATION INDICATOR
+# ==============================================================================
+def _draw_nav_indicator(img, nav_command, nav_distance):
+    """Draw navigation maneuver indicator as an overlay on the mode bar."""
+    color = NAV_COLORS.get(nav_command, (200, 200, 200))
+    arrow = NAV_ARROWS.get(nav_command, ' -- ? -- ')
+    text = f"{arrow} {nav_distance:.0f}m"
+    (tw, _), _ = cv2.getTextSize(text, FONT, FONT_SM, 1)
+    # Right-aligned in the mode bar
+    x = CANVAS_W - tw - 8
+    y = 22
+    cv2.putText(img, text, (x, y), FONT, FONT_SM, color, 1)
+
+
+# ==============================================================================
 # MAIN RENDER FUNCTION
 # ==============================================================================
 def render_display(images_dict, lane_data, radar_boxes, radar_vehicles,
                    mode_label, confidence, level,
                    speed_kmh, target_speed, steering, throttle, brake,
-                   frame):
+                   frame, nav_command='', nav_distance=0.0):
     canvas = _make_blank(CANVAS_H, CANVAS_W)
 
     front_bgr = images_dict.get('F')
@@ -432,6 +463,6 @@ def render_display(images_dict, lane_data, radar_boxes, radar_vehicles,
     draw_small_cameras(canvas, images_dict)
     draw_telemetry(canvas, throttle, brake, steering, frame, speed_kmh, target_speed)
     draw_trajectory_bar(canvas, steering, lane_data['curvature'] if lane_data else 0.0)
-    draw_mode_bar(canvas, mode_label, confidence, level)
+    draw_mode_bar(canvas, mode_label, confidence, level, nav_command, nav_distance)
 
     return canvas

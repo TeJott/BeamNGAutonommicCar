@@ -20,7 +20,7 @@ print("[SYSTEM] Nawiazywanie polaczenia...")
 bng = BeamNGpy(BEAMNG_HOST, BEAMNG_PORT, home=BEAMNG_HOME)
 bng.open()
 
-vehicle = Vehicle(VEHICLE_NAME, model=VEHICLE_MODEL, licence='AUTONOMY')
+vehicle = Vehicle(VEHICLE_NAME, model=VEHICLE_MODEL, license='AUTONOMY')
 scenario = Scenario(MAP_NAME, SCENARIO_NAME)
 
 yaw_rad = math.radians(SPAWN_YAW_DEG) + math.pi
@@ -79,11 +79,13 @@ print("  1 - BeamNG Traffic AI (pelna autonomia)")
 print("  2 - Custom CV (detekcja pasow + kontrola predkosci)")
 print("  3 - LKA + ACC (asysta pasa + tempomat)")
 print("  4 - DiffusionDriveV2 (end-to-end, wymaga GPU + checkpoint)")
+print("  5 - DDV2 + Nawigacja (DDV2 z komendami skretu)")
 print("  0 - STOP awaryjny")
 print("  q - Wyjscie")
 
 # Probuj zaladowac DDV2 jesli dostepny
 controller.init_ddv2()
+controller.init_navigation()
 
 frame = 0
 speed_kmh = 0
@@ -127,6 +129,10 @@ try:
         radar_vehicles = radar.get_nearby_vehicles()
         radar_boxes = radar.project_to_front_camera(radar_vehicles)
 
+        # Navigation info for display
+        nav_cmd = getattr(controller, 'nav_command', '')
+        nav_dist = getattr(controller, 'nav_distance', 0.0)
+
         # Render full display
         camera_view = render_display(
             images_dict=images,
@@ -142,14 +148,17 @@ try:
             throttle=throttle,
             brake=brake,
             frame=frame,
+            nav_command=nav_cmd,
+            nav_distance=nav_dist,
         )
 
         cv2.imshow(DISPLAY['window_name'], camera_view)
         frame += 1
 
         if frame % DISPLAY['frame_interval'] == 0:
+            nav_str = f" | NAV: {nav_cmd} {nav_dist:.0f}m" if nav_cmd else ""
             print(f"[AUTONOMY] Klatka: {frame} | Tryb: {mode_label} | "
-                  f"Skret: {target_steering:.3f} | Predkosc: {int(disp_speed)} km/h")
+                  f"Skret: {target_steering:.3f} | Predkosc: {int(disp_speed)} km/h{nav_str}")
 
         key = cv2.waitKey(1) & 0xFF
         if key == ord('q'):

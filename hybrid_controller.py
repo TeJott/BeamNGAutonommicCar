@@ -4,6 +4,7 @@ from speed_controller import compute_speed_control, reset_speed_controller
 
 
 class HybridController:
+    LEVEL_NAV_DDV2 = 4
     LEVEL_DDV2 = 3
     LEVEL_TRAFFIC_AI = 2
     LEVEL_LKA_ACC = 1
@@ -22,13 +23,36 @@ class HybridController:
         self.prev_brake = 0.0
         self.ddv2 = None
         self.ddv2_frame = 0
+        self.navigation = None
+        self.nav_command = 'follow_lane'
+        self.nav_distance = 999.0
+
+    def init_navigation(self, waypoints=None, auto_distance=500.0):
+        """Initialize the navigation system."""
+        try:
+            from navigation import NavigationSystem
+            self.navigation = NavigationSystem(self.bng)
+            self.navigation.auto_distance = auto_distance
+
+            if waypoints:
+                self.navigation.set_manual_waypoints(waypoints)
+                print(f"[HYBRID] Nawigacja: {len(waypoints)} waypointow manualnych")
+            else:
+                self.navigation.load_graph()
+                print(f"[HYBRID] Nawigacja: tryb auto-routingu (dystans: {auto_distance}m)")
+
+            return True
+        except ImportError as e:
+            print(f"[HYBRID] Nawigacja niedostepna: {e}")
+            self.navigation = None
+            return False
 
     def init_ddv2(self, checkpoint_path=None):
         try:
             from ddv2 import DDV2Inference
             self.ddv2 = DDV2Inference(checkpoint_path=checkpoint_path)
             if self.ddv2.load():
-                print("[HYBRID] DDV2 zaladowany - dostepny poziom 3")
+                print("[HYBRID] DDV2 zaladowany - dostepny poziom 3 i 4")
                 return True
             else:
                 print("[HYBRID] DDV2 nie zaladowany - sprawdz checkpoint i zaleznosci")
@@ -43,9 +67,28 @@ class HybridController:
         if level == self.current_level:
             return
 
-        print(f"[HYBRID] Przelaczanie: poziom {self.current_level} -> {level}")
+        labels = {
+            self.LEVEL_NAV_DDV2: "DDV2+NAV",
+            self.LEVEL_DDV2: "DDV2",
+            self.LEVEL_TRAFFIC_AI: "TRAFFIC_AI",
+            self.LEVEL_LKA_ACC: "LKA+ACC",
+            self.LEVEL_CUSTOM_CV: "CUSTOM_CV",
+            self.LEVEL_EMERGENCY: "EMERGENCY",
+        }
+        print(f"[HYBRID] Przelaczanie: {labels.get(self.current_level, '?')} -> {labels.get(level, '?')}")
 
-        if level == self.LEVEL_DDV2:
+        if level == self.LEVEL_NAV_DDV2:
+            if self.ddv2 is None:
+                print("[HYBRID] DDV2 nie zaladowany - nie mozna przelaczyc")
+                return
+            if self.navigation is None:
+                self.init_navigation()
+            self.ai.stop()
+            reset_speed_controller()
+            self.ddv2.reset()
+            self.ddv2_frame = 0
+            self.current_level = level
+        elif level == self.LEVEL_DDV2:
             if self.ddv2 is None:
                 print("[HYBRID] DDV2 nie zaladowany - nie mozna przelaczyc")
                 return
@@ -75,7 +118,6 @@ class HybridController:
         self.transition_progress = 0
 
     def update(self, images, speed_kmh):
-        # Get lane visualization data whenever we have front camera
         lane_data = get_lane_visualization_data(images.get('F'))
         confidence = lane_data['confidence'] if lane_data else 0.0
 
@@ -93,7 +135,7 @@ class HybridController:
             print("[HYBRID] LKA zawiodlo - spadam do CV")
             self.set_level(self.LEVEL_CUSTOM_CV)
 
-        if self.current_level in (self.LEVEL_TRAFFIC_AI,):
+        if self.current_level == self.LEVEL_TRAFFIC_AI:
             try:
                 self.vehicle.sensors.poll()
                 vel = self.vehicle.state.get('vel', (0, 0, 0))
@@ -101,7 +143,6 @@ class HybridController:
                 current_speed = speed_ms * 3.6
             except Exception:
                 current_speed = speed_kmh
-
             return 0.0, 0.0, 0.0, current_speed, 0.0, "TRAFFIC_AI", lane_data, confidence, 0.0
 
         if self.current_level == self.LEVEL_LKA_ACC:
@@ -116,7 +157,8 @@ class HybridController:
             steering, curvature = get_fused_lane_steering(images)
             return steering, 0.0, curvature, current_speed, 0.0, "LKA+ACC", lane_data, confidence, 0.0
 
-        if self.current_level == self.LEVEL_DDV2 and self.ddv2 and self.ddv2.is_available():
+        if self.current_level in (self.LEVEL_DDV2, self.LEVEL_NAV_DDV2) \
+                and self.ddv2 and self.ddv2.is_available():
             try:
                 self.vehicle.sensors.poll()
                 vel = self.vehicle.state.get('vel', (0, 0, 0))
@@ -124,14 +166,26 @@ class HybridController:
             except Exception:
                 speed_ms = speed_kmh / 3.6
 
+            driving_command = 'follow_lane'
+            if self.current_level == self.LEVEL_NAV_DDV2 and self.navigation:
+                pos = self.vehicle.state.get('pos')
+                if pos:
+                    driving_command, nav_dist = self.navigation.update(pos)
+                    self.nav_command = driving_command
+                    self.nav_distance = nav_dist
+
             if self.ddv2_frame % self.ddv2.frame_skip == 0:
-                steering, throttle, brake = self.ddv2.step(images, speed_ms)
+                steering, throttle, brake = self.ddv2.step(
+                    images, speed_ms, driving_command=driving_command
+                )
             else:
                 steering, throttle, brake = self.ddv2.interpolate(self.ddv2_frame)
 
             self.ddv2_frame += 1
             self.vehicle.control(throttle=throttle, steering=steering, brake=brake)
-            return steering, throttle, 0.0, speed_ms * 3.6, 0.0, "DDV2", lane_data, confidence, brake
+
+            mode_label = "DDV2+NAV" if self.current_level == self.LEVEL_NAV_DDV2 else "DDV2"
+            return steering, throttle, 0.0, speed_ms * 3.6, 0.0, mode_label, lane_data, confidence, brake
 
         if self.current_level == self.LEVEL_CUSTOM_CV:
             steering, curvature = get_fused_lane_steering(images)
@@ -163,6 +217,11 @@ class HybridController:
         elif key == ord('4'):
             if self.ddv2 and self.ddv2.is_available():
                 self.set_level(self.LEVEL_DDV2)
+            else:
+                print("[HYBRID] DDV2 niedostepny - najpierw wywolaj init_ddv2()")
+        elif key == ord('5'):
+            if self.ddv2 and self.ddv2.is_available():
+                self.set_level(self.LEVEL_NAV_DDV2)
             else:
                 print("[HYBRID] DDV2 niedostepny - najpierw wywolaj init_ddv2()")
         elif key == ord('0'):

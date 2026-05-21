@@ -25,11 +25,15 @@ class TrajectoryController:
 
         For initial integration: picks the highest-scoring trajectory.
         Future: add consistency check with current vehicle state.
+
+        Args:
+            trajectories: (K, T, 3) array
+            scores: (K,) array
         """
         if scores.ndim > 1:
             scores = scores.flatten()
         best_idx = int(scores.argmax())
-        return trajectories[0, best_idx]
+        return trajectories[best_idx]  # (T, 3)
 
     def trajectory_to_control(self, trajectory, current_speed_ms):
         """

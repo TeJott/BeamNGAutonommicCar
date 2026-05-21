@@ -1,99 +1,62 @@
-import cv2
 import numpy as np
+import cv2
 
 
 class BeamNGCameraAdapter:
     """
-    Adapts BeamNG 6-camera setup to DDV2's expected NAVSIM-format input.
+    Adapts BeamNG 6-camera setup to DDV2's 360-degree surround format.
 
-    DDV2 expects:
-    - Multi-camera input (typically 6 cameras)
-    - Resolution at least 224x224 (ResNet-34 backbone minimum)
-    - RGB channel order
-    - Normalized pixel values [0, 1]
-    - Camera intrinsics and extrinsics matrices
+    DDV2 expects a single 1024x256 panorama from all 6 cameras, ordered
+    around the vehicle: FL -> F -> FR -> BR -> B -> BL.
 
-    BeamNG provides:
-    - 300x200 BGR images via shared memory
-    - Camera positions and directions as (x, y, z) vectors
-    - No explicit intrinsics (must estimate from FOV)
+    Each camera receives ~170px width. The model was trained on 3-camera
+    NAVSIM panoramas but handles 6 cameras in the same resolution.
     """
 
-    CAMERA_ORDER = ['F', 'FR', 'FL', 'B', 'BR', 'BL']
+    CAMERA_ORDER = ['FL', 'F', 'FR', 'BR', 'B', 'BL']
+    PANORAMA_WIDTH = 1024
+    PANORAMA_HEIGHT = 256
 
-    def __init__(self, target_resolution=(224, 400)):
-        self.target_h, self.target_w = target_resolution
-        self.default_fov_y = 70.0
+    def __init__(self, target_w=1024, target_h=256):
+        self.target_w = target_w
+        self.target_h = target_h
 
-    def adapt(self, images_dict, camera_specs=None):
+    def build_composite(self, images_dict):
         """
-        Convert BeamNG camera images to DDV2 tensor format.
+        Build 6-camera composite panorama for DDV2.
 
         Args:
-            images_dict: {'F': ndarray(200,300,3), 'FL': ..., ...}
-            camera_specs: Optional dict of camera positions/directions
+            images_dict: {'F': ndarray(H,W,3), 'FL': ..., 'FR': ...,
+                          'B': ..., 'BR': ..., 'BL': ...}
+                         BGR uint8, native BeamNG resolution.
 
         Returns:
-            images_tensor: numpy array of shape (6, 3, H, W) normalized [0,1]
-            intrinsics: dummy intrinsics matrix (6, 3, 3)
-            extrinsics: dummy extrinsics matrix (6, 4, 4)
+            composite: ndarray (3, target_h, target_w) float32, CHW, RGB, [0,1]
         """
-        batch = []
-        for cam_name in self.CAMERA_ORDER:
+        per_cam_w = self.target_w // 6
+        extra = self.target_w - per_cam_w * 6
+
+        strips = []
+        for i, cam_name in enumerate(self.CAMERA_ORDER):
             img = images_dict.get(cam_name)
             if img is None:
                 img = np.zeros((200, 300, 3), dtype=np.uint8)
 
+            w = per_cam_w + (1 if i < extra else 0)
             img_rgb = cv2.cvtColor(img, cv2.COLOR_BGR2RGB)
-            img_resized = cv2.resize(img_rgb, (self.target_w, self.target_h))
+            img_resized = cv2.resize(img_rgb, (w, self.target_h))
             img_norm = img_resized.astype(np.float32) / 255.0
-            img_chw = np.transpose(img_norm, (2, 0, 1))
-            batch.append(img_chw)
+            strips.append(img_norm)
 
-        images_tensor = np.stack(batch, axis=0)
+        composite = np.concatenate(strips, axis=1)
+        composite = np.transpose(composite, (2, 0, 1))
+        return composite.astype(np.float32)
 
-        intrinsics = self._estimate_intrinsics(self.target_h, self.target_w)
-        intrinsics_batch = np.stack([intrinsics] * 6, axis=0)
+    def adapt(self, images_dict, camera_specs=None):
+        """
+        Build DDV2 input composite from BeamNG camera images.
 
-        extrinsics = self._estimate_extrinsics(camera_specs)
-        extrinsics_batch = np.stack([extrinsics] * 6, axis=0) if extrinsics is not None \
-            else np.eye(4)[np.newaxis].repeat(6, axis=0)
-
-        return images_tensor, intrinsics_batch, extrinsics_batch
-
-    def _estimate_intrinsics(self, h, w):
-        fov_y_rad = np.radians(self.default_fov_y)
-        fy = (h / 2.0) / np.tan(fov_y_rad / 2.0)
-        fx = fy
-        cx = w / 2.0
-        cy = h / 2.0
-
-        K = np.array([
-            [fx, 0, cx],
-            [0, fy, cy],
-            [0, 0, 1],
-        ], dtype=np.float32)
-        return K
-
-    def _estimate_extrinsics(self, camera_specs):
-        if camera_specs is None:
-            return None
-
-        extrinsics = {}
-        for name, spec in camera_specs.items():
-            pos = np.array(spec['pos'], dtype=np.float32)
-            forward = np.array(spec['dir'], dtype=np.float32)
-            forward = forward / (np.linalg.norm(forward) + 1e-8)
-            up = np.array([0, 0, 1], dtype=np.float32)
-            right = np.cross(forward, up)
-            right = right / (np.linalg.norm(right) + 1e-8)
-            up = np.cross(right, forward)
-
-            Rt = np.eye(4, dtype=np.float32)
-            Rt[0, :3] = right
-            Rt[1, :3] = forward
-            Rt[2, :3] = up
-            Rt[:3, 3] = pos
-            extrinsics[name] = Rt
-
-        return extrinsics
+        Returns:
+            composite: (3, target_h, target_w) CHW float32, RGB, [0,1]
+        """
+        return self.build_composite(images_dict)
