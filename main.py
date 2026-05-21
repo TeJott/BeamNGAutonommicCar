@@ -10,7 +10,8 @@ from config import (BEAMNG_HOME, BEAMNG_HOST, BEAMNG_PORT, VEHICLE_NAME, VEHICLE
                     CAM_RESOLUTION, CAM_UPDATE_TIME, CAM_SPECS, DISPLAY)
 from ai_driver import BeamNGAIDriver
 from hybrid_controller import HybridController
-from visualization import build_camera_grid, draw_hud
+from visualization import render_display
+from radar_sensor import RadarDetector
 
 # ==============================================================================
 # INICJALIZACJA SYSTEMU BEAMNG
@@ -62,10 +63,12 @@ cv2.namedWindow(DISPLAY['window_name'], cv2.WINDOW_NORMAL)
 cv2.resizeWindow(DISPLAY['window_name'], DISPLAY['window_width'], DISPLAY['window_height'])
 
 # ==============================================================================
-# INICJALIZACJA AI I KONTROLERA HYBRYDOWEGO
+# INICJALIZACJA AI, KONTROLERA HYBRYDOWEGO I RADARU
 # ==============================================================================
 ai_driver = BeamNGAIDriver(bng, vehicle)
 controller = HybridController(bng, vehicle, ai_driver)
+radar = RadarDetector(bng, vehicle)
+radar.start()
 
 # ==============================================================================
 # PETLA GLOWNA
@@ -84,10 +87,6 @@ controller.init_ddv2()
 
 frame = 0
 speed_kmh = 0
-target_speed = 0
-throttle = 0.0
-brake = 0.0
-mode_label = "CUSTOM_CV"
 
 try:
     while True:
@@ -118,17 +117,32 @@ try:
         except Exception:
             pass
 
-        target_steering, throttle, curvature, disp_speed, target_speed, mode_label = \
-            controller.update(images, speed_kmh)
+        result = controller.update(images, speed_kmh)
+        target_steering, throttle, curvature, disp_speed, target_speed, mode_label, lane_data, confidence, brake = result
 
         if mode_label in ("TRAFFIC_AI", "LKA+ACC"):
             disp_speed = speed_kmh
 
-        camera_view = build_camera_grid(images)
-        camera_view = draw_hud(camera_view, disp_speed, target_speed,
-                               target_steering, throttle, brake, frame)
-        cv2.putText(camera_view, f"MODE: {mode_label}", (10, 155),
-                    cv2.FONT_HERSHEY_SIMPLEX, 0.5, (0, 255, 255), 1)
+        # Radar: detect nearby vehicles
+        radar_vehicles = radar.get_nearby_vehicles()
+        radar_boxes = radar.project_to_front_camera(radar_vehicles)
+
+        # Render full display
+        camera_view = render_display(
+            images_dict=images,
+            lane_data=lane_data,
+            radar_boxes=radar_boxes,
+            radar_vehicles=radar_vehicles,
+            mode_label=mode_label,
+            confidence=confidence,
+            level=controller.current_level,
+            speed_kmh=disp_speed,
+            target_speed=target_speed,
+            steering=target_steering,
+            throttle=throttle,
+            brake=brake,
+            frame=frame,
+        )
 
         cv2.imshow(DISPLAY['window_name'], camera_view)
         frame += 1

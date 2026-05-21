@@ -57,7 +57,7 @@ SPEED_CONTROL = {
 
 DISPLAY = {
     'window_name': '360 Camera View',
-    'window_width': 1200,
-    'window_height': 800,
+    'window_width': 1150,
+    'window_height': 780,
     'frame_interval': 50,
 }

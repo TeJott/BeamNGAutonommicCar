@@ -1,5 +1,5 @@
 import math
-from lane_detection import get_fused_lane_steering
+from lane_detection import get_fused_lane_steering, get_lane_visualization_data
 from speed_controller import compute_speed_control, reset_speed_controller
 
 
@@ -75,9 +75,13 @@ class HybridController:
         self.transition_progress = 0
 
     def update(self, images, speed_kmh):
+        # Get lane visualization data whenever we have front camera
+        lane_data = get_lane_visualization_data(images.get('F'))
+        confidence = lane_data['confidence'] if lane_data else 0.0
+
         if self.current_level == self.LEVEL_EMERGENCY:
             self.vehicle.control(throttle=0.0, steering=0.0, brake=1.0)
-            return 0.0, 0.0, 0.0, 0.0, 0.0, "EMERGENCY"
+            return 0.0, 0.0, 0.0, 0.0, 0.0, "EMERGENCY", lane_data, confidence, 1.0
 
         health = self.ai.check_health()
 
@@ -98,7 +102,7 @@ class HybridController:
             except Exception:
                 current_speed = speed_kmh
 
-            return 0.0, 0.0, 0.0, current_speed, 0.0, "TRAFFIC_AI"
+            return 0.0, 0.0, 0.0, current_speed, 0.0, "TRAFFIC_AI", lane_data, confidence, 0.0
 
         if self.current_level == self.LEVEL_LKA_ACC:
             try:
@@ -110,7 +114,7 @@ class HybridController:
                 current_speed = speed_kmh
 
             steering, curvature = get_fused_lane_steering(images)
-            return steering, 0.0, curvature, current_speed, 0.0, "LKA+ACC"
+            return steering, 0.0, curvature, current_speed, 0.0, "LKA+ACC", lane_data, confidence, 0.0
 
         if self.current_level == self.LEVEL_DDV2 and self.ddv2 and self.ddv2.is_available():
             try:
@@ -127,7 +131,7 @@ class HybridController:
 
             self.ddv2_frame += 1
             self.vehicle.control(throttle=throttle, steering=steering, brake=brake)
-            return steering, throttle, 0.0, speed_ms * 3.6, 0.0, "DDV2"
+            return steering, throttle, 0.0, speed_ms * 3.6, 0.0, "DDV2", lane_data, confidence, brake
 
         if self.current_level == self.LEVEL_CUSTOM_CV:
             steering, curvature = get_fused_lane_steering(images)
@@ -145,9 +149,9 @@ class HybridController:
             self.prev_brake = brake
 
             self.vehicle.control(throttle=throttle, steering=steering, brake=brake)
-            return steering, throttle, curvature, speed_kmh, target_speed, "CUSTOM_CV"
+            return steering, throttle, curvature, speed_kmh, target_speed, "CUSTOM_CV", lane_data, confidence, brake
 
-        return 0.0, 0.0, 0.0, speed_kmh, 0.0, "UNKNOWN"
+        return 0.0, 0.0, 0.0, speed_kmh, 0.0, "UNKNOWN", lane_data, confidence, 0.0
 
     def handle_key(self, key):
         if key == ord('1'):

@@ -120,3 +120,47 @@ def get_fused_lane_steering(images_dict):
     steering = max(-1.0, min(1.0, error * Kp))
 
     return steering, curvature
+
+
+def get_lane_visualization_data(img_bgr):
+    """Returns rich lane data for visualization overlays."""
+    if img_bgr is None:
+        return None
+
+    h, w, _ = img_bgr.shape
+    roi_top = int(h * CFG['roi_top_ratio'])
+    left_x, right_x = _detect_lane_points(img_bgr)
+
+    lane_center = w / 2.0
+    confidence = 0.0
+    left_mean = None
+    right_mean = None
+
+    if left_x and right_x:
+        left_mean = np.mean(left_x)
+        right_mean = np.mean(right_x)
+        lane_center = (left_mean + right_mean) / 2.0
+        confidence = 1.0
+    elif left_x:
+        left_mean = np.mean(left_x)
+        lane_center = left_mean + CFG['assumed_lane_width_px']
+        right_mean = lane_center + CFG['assumed_lane_width_px'] / 2
+        confidence = 0.55
+    elif right_x:
+        right_mean = np.mean(right_x)
+        lane_center = right_mean - CFG['assumed_lane_width_px']
+        left_mean = lane_center - CFG['assumed_lane_width_px'] / 2
+        confidence = 0.55
+
+    return {
+        'roi_top': roi_top,
+        'img_width': w,
+        'img_height': h,
+        'left_x': left_x,
+        'right_x': right_x,
+        'left_mean': left_mean,
+        'right_mean': right_mean,
+        'lane_center': lane_center,
+        'confidence': confidence,
+        'curvature': estimate_curvature(left_x, right_x, h - roi_top, w),
+    }
